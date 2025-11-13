@@ -16,8 +16,8 @@ export class GeminiService {
     fileContents: Map<string, string>
   ): Promise<ReviewResult> {
     const codeContext = this.prepareCodeContext(files, fileContents);
-    
-    const prompt = `You are an expert code reviewer. Analyze this pull request and provide feedback in JSON format.
+
+    const prompt = `You are an expert code reviewer. Analyze this pull request and provide detailed, actionable feedback in JSON format.
 
 PR Title: ${prData.title}
 Description: ${prData.body || 'No description'}
@@ -26,17 +26,23 @@ Files changed: ${files.length}
 Code changes:
 ${codeContext}
 
+CRITICAL REQUIREMENTS:
+1. Provide EXACT line numbers for ALL comments (never null/undefined)
+2. For each suggestion, include the actual code that should replace the existing code
+3. Focus on specific, actionable improvements rather than general advice
+4. Separate critical issues (security, bugs, breaking changes) from minor improvements
+
 Return JSON with this structure:
 {
-  "summary": "Brief overall assessment",
+  "summary": "Brief overall assessment (2-3 sentences max)",
   "overall_score": 1-10,
   "comments": [
     {
       "file": "filename",
-      "line": null,
+      "line": 42,
       "type": "error|warning|info|suggestion",
-      "message": "Feedback message",
-      "suggestion": "Optional improvement suggestion",
+      "message": "Clear, specific feedback about the issue",
+      "suggestion": "The exact code that should replace the problematic code at this line",
       "severity": "low|medium|high|critical"
     }
   ],
@@ -47,7 +53,12 @@ Return JSON with this structure:
   }
 }
 
-Focus on code quality, security, performance, and best practices.`;
+IMPORTANT:
+- Line numbers must be accurate based on the file content provided
+- Suggestions should be actual code snippets that can be directly applied
+- For critical issues (security, bugs), use severity "high" or "critical"
+- For style/best practices, use "low" or "medium"
+- Each comment must have a specific line number where the change should be made`;
 
     const result = await this.model.generateContent(prompt);
     const response = await result.response;
@@ -58,22 +69,26 @@ Focus on code quality, security, performance, and best practices.`;
 
   private prepareCodeContext(files: FileChange[], fileContents: Map<string, string>): string {
     let context = '';
-    
+
     for (const file of files.slice(0, 8)) {
       context += `=== ${file.filename} ===\n`;
       context += `Status: ${file.status} (+${file.additions} -${file.deletions})\n\n`;
-      
+
       if (file.patch) {
         context += `Changes:\n${file.patch}\n\n`;
       }
-      
+
       const content = fileContents.get(file.filename);
       if (content) {
-        const preview = content.split('\n').slice(0, 30).join('\n');
-        context += `File preview:\n${preview}\n\n`;
+        const lines = content.split('\n');
+        context += `Full file content (with line numbers):\n`;
+        lines.forEach((line, index) => {
+          context += `${index + 1}: ${line}\n`;
+        });
+        context += `\n`;
       }
     }
-    
+
     return context;
   }
 
